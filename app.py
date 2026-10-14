@@ -1,6 +1,7 @@
 import streamlit as st
 from PIL import Image
 from google import genai
+import time
 
 st.set_page_config(page_title="EcoSort - Smart Waste Classifier", page_icon="♻️")
 
@@ -28,7 +29,7 @@ if uploaded_file is not None:
         if client is None:
             st.warning("Please enter your Gemini API key in the sidebar to proceed.")
         else:
-            with st.spinner("Analyzing waste item with Gemini Vision..."):
+            with st.spinner("Analyzing waste item with Gemini Vision (handling server traffic)..."):
                 prompt = """
                 Analyze this image of a waste item. Provide the following details clearly using headings:
                 1. **Item Name:** What is the item in the image?
@@ -37,12 +38,27 @@ if uploaded_file is not None:
                 4. **Environmental Impact / Tip:** A short eco-friendly tip regarding this material.
                 """
                 
-                try:
-                    response = client.models.generate_content(
-                        model="gemini-3.8-flash",
-                        contents=[image, prompt]
-                    )
-                    
+                # Automatic Retry Logic for 503 Overload Errors
+                max_retries = 3
+                success = False
+                response = None
+                
+                for attempt in range(max_retries):
+                    try:
+                        response = client.models.generate_content(
+                            model="gemini-3.8-flash",
+                            contents=[image, prompt]
+                        )
+                        success = True
+                        break
+                    except Exception as e:
+                        if "503" in str(e) and attempt < max_retries - 1:
+                            time.sleep(3) # 3 seconds wait karke dobara try karega
+                            continue
+                        else:
+                            error_msg = str(e)
+                
+                if success and response:
                     st.subheader("📋 Classification & Disposal Guide")
                     st.markdown(response.text)
                     
@@ -52,6 +68,5 @@ if uploaded_file is not None:
                         file_name="Waste_Disposal_Report.txt",
                         mime="text/plain"
                     )
-                    
-                except Exception as e:
-                    st.error(f"Error during analysis: {e}")
+                else:
+                    st.error(f"Server is busy (503 High Demand). Please wait a moment and click 'Classify Waste' again! Error details: {error_msg if 'error_msg' in locals() else 'Unknown'}")
